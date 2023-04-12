@@ -29,6 +29,8 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include "spindle_launch.h"
 #include "plugin_utils.h"
 
+#include "config.h"
+
 
 SPINDLE_EXPORT extern const char plugin_name[];
 SPINDLE_EXPORT extern const char plugin_type[];
@@ -563,9 +565,7 @@ static int launchBE(spank_t spank, spindle_args_t *params)
 
 static int prepApp(spank_t spank, spindle_args_t *params)
 {
-   int app_argc, result;
-   char **app_argv;
-   char *app_exe_name, *last_slash;
+   int result = -1;
    spank_err_t err;
    int bootstrap_argc;
    char **bootstrap_argv;
@@ -575,7 +575,47 @@ static int prepApp(spank_t spank, spindle_args_t *params)
       sdprintf(1, "ERROR: Failure getting bootstrap arguments.  Aborting spindle\n");
       return -1;
    }
-      
+
+{
+#if HAVE_DECL_S_TASK_ARGV == 1
+   int *task_argc, new_argc;
+   char ***task_argv, **new_argv;
+   int i, j = 0;
+   sdprintf(2, "Prepping task process %d to run spindle\n", getpid());
+
+   err = spank_get_item(spank, S_TASK_ARGV, &task_argc, &task_argv);
+   if (err != ESPANK_SUCCESS) {
+      sdprintf(1, "WARNING: Could not get task argv to filter spindle.\n");
+   } else {
+       new_argc = bootstrap_argc + *task_argc;
+       new_argv = (char **) malloc(sizeof(char*) * (new_argc+1));
+
+       for (i = 0; i < bootstrap_argc; i++) {
+	   if (bootstrap_argv[i])
+	       new_argv[j++] = (char *) bootstrap_argv[i];
+       }
+       for (i = 0; i < *task_argc; i++) {
+	   if ((*task_argv)[i])
+	       new_argv[j++] = (char *) (*task_argv)[i];
+       }
+       new_argv[j] = NULL;
+
+       char str[1024] = { '\0' };
+       for (int arg = 0; new_argv[arg]; arg++) {
+	   snprintf(str + strlen(str), sizeof(str) - strlen(str),
+		    "%s%s", arg ? " " : "", new_argv[arg]);
+       }
+       sdprintf(2, "Exec'ing: '%s'\n", str);
+
+       *task_argc = new_argc;
+       *task_argv = new_argv;
+
+       result = 0;
+   }
+#else
+   int app_argc;
+   char **app_argv;
+   char *app_exe_name, *last_slash;
    sdprintf(2, "Prepping app process %d to run spindle\n", getpid());
 
    err = spank_get_item(spank, S_JOB_ARGV, &app_argc, &app_argv);
@@ -590,6 +630,9 @@ static int prepApp(spank_t spank, spindle_args_t *params)
    }
 
    result = spindleHookSpindleArgsIntoExecBE(bootstrap_argc, bootstrap_argv, app_exe_name);
+#endif
+}
+
    if (result == -1) {
       sdprintf(1, "ERROR setting up app to run spindle.  Spindle won't work\n");
       return -1;
