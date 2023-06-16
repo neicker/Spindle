@@ -593,7 +593,16 @@ static int prepApp(spank_t spank, spindle_args_t *params)
    }
 
 {
-#if HAVE_DECL_S_TASK_ARGV == 1
+#if HAVE_DECL_SPANK_PREPEND_TASK_ARGV == 1
+   sdprintf(2, "Prepping task process %d to run spindle\n", getpid());
+
+   const char **filter_argv = (const char **)bootstrap_argv;
+   err = spank_prepend_task_argv(spank, bootstrap_argc, filter_argv);
+   if (err != ESPANK_SUCCESS) {
+      sdprintf(1, "WARNING: Could not prepend spindle filter.\n");
+      result = -1;
+   }
+#elif HAVE_DECL_S_TASK_ARGV == 1
    int *task_argc, new_argc;
    char ***task_argv, **new_argv;
    int i, j = 0;
@@ -602,6 +611,7 @@ static int prepApp(spank_t spank, spindle_args_t *params)
    err = spank_get_item(spank, S_TASK_ARGV, &task_argc, &task_argv);
    if (err != ESPANK_SUCCESS) {
       sdprintf(1, "WARNING: Could not get task argv to filter spindle.\n");
+      result = -1;
    } else {
        new_argc = bootstrap_argc + *task_argc;
        new_argv = (char **) malloc(sizeof(char*) * (new_argc+1));
